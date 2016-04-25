@@ -46,7 +46,7 @@ volatile int
 /* 
  * INVERTER
  */
-		g_nPWMDuty = 254 , 
+		g_nPWMDuty = 100,//254 ,
 		g_nTubeVoltage = 0,  
 		g_nTubeVoltageThreshold = 400, tolv = 5,
 		g_nCPM = 0, g_nLastCPM = 0, ready = 0;						
@@ -60,7 +60,9 @@ volatile int
  */
 float	usvhfactor = 0.006,	//preconfigured for given tube
 		usvhold = 0;
-						
+
+bool 	bRefresh = true, bBeep = false;
+
 // Reads the ADC port specified by i
 uint16_t adcread(uint8_t i)
 {
@@ -71,6 +73,7 @@ uint16_t adcread(uint8_t i)
 	v|= (ADCH<<8);
 	return v;
 }
+
 int readHV() {
 	float	Vref		= 5.0; //Vref set to 5V
 	float supplyadc = adcread(3);
@@ -86,10 +89,10 @@ int readHV() {
 ISR (TIMER0_OVF_vect)  
 {
 	g_nTimeMilis ++;
-	if (g_nTimeMilis == 976) {
+	if (g_nTimeMilis >= 976) {
+		bRefresh = true;
 		 if (g_nTimeSec<59) {
 			g_nTimeSec++; 
-			
 		 }			
 		 else { 
 			g_nTimeSec = 0; 
@@ -122,14 +125,9 @@ ISR (TIMER0_OVF_vect)
 	detected on INT0, which on a ATmega8 is PD2
 */
 
-ISR(INT0_vect)
-{
+ISR(INT0_vect) {
 	gs_geiger_pulses++;
-	SPKSet(1);
-	LEDSet(1);
-	_delay_ms(2);
-	SPKSet(0);
-	LEDSet(0);
+	bBeep = true;
 }
  
 
@@ -212,7 +210,7 @@ int main(void) {
 		i++;
 		
 		// check voltage every two seconds, and adjust duty cycle to regulate voltage
-		if (g_nTimeSec % 2 == 0) {
+		//if (g_nTimeSec % 2 == 0) {
 			g_nTubeVoltage = readHV();
 			if (g_nTubeVoltage >= g_nTubeVoltageThreshold + tolv) { // we need to decrease voltage
 				if (g_nPWMDuty > 10) g_nPWMDuty --; //1%
@@ -222,11 +220,8 @@ int main(void) {
 				if (g_nPWMDuty < 350) g_nPWMDuty ++;//35%
 				OCR1A = (int)((float)ICR1 * (float)g_nPWMDuty/1000.0); //
 			}
-		}
+		//}
 
-		// move LCD cursor back to home position: we prepare a new display content
-		lcd_home();
-		
 		float usvh = 0;
 		
 		// we compute the dose every 5 seconds
@@ -236,21 +231,34 @@ int main(void) {
 			usvhold = usvh;
 		}
 		
-		// 2x16 Output
-		// first line: dose in microsieverts and in counts per minute
-		// second line: voltage on tube, second counter, pulse counter, duty cycle
-		
-		//XXXXXXXXXXXXXXXX
-		// 0.12uSvh 18CPM
-		//400V 50s 18 245
+		if (bRefresh) {
+			bRefresh = false;
 
-		lcd_string_format("%2.2fuSvh %dCPM     \n%dV %ds %d %d    ", 
-			usvhold,g_nLastCPM,
-			g_nTubeVoltage, g_nTimeSec,gs_geiger_pulses, g_nPWMDuty );
+			// move LCD cursor back to home position: we prepare a new display content
+			lcd_home();
+
+			// 2x16 Output
+			// first line: dose in microsieverts and in counts per minute
+			// second line: voltage on tube, second counter, pulse counter, duty cycle
 			
+			//XXXXXXXXXXXXXXXX
+			// 0.12uSvh 18CPM
+			//400V 50s 18 245
+
+			lcd_string_format("%2.2fuSvh %dCPM     \n%dV %ds %d %d    ",
+				usvhold,g_nLastCPM,
+				g_nTubeVoltage, g_nTimeSec,gs_geiger_pulses, g_nPWMDuty );
+		}
 		
-		_delay_ms(100);
-		
+		if (bBeep) {
+			bBeep = false;
+			SPKSet(1);
+			LEDSet(1);
+			_delay_us(100);
+			SPKSet(0);
+			LEDSet(0);
+		}
+
 	}
 	return (0);
 } 
